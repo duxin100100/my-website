@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>Duxin Portfolio – Wheel Carousel v2</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      min-height: 100vh;
+      background: #050505;
+      color: #f5f5f5;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+        "Segoe UI", Roboto, sans-serif;
+      overflow: hidden; /* 不出现默认滚动条 */
+    }
+
+    /* 顶部导航 */
+    .top-bar {
+      position: fixed;
+      inset: 0 0 auto 0;
+      height: 72px;
+      padding: 0 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    .logo {
+      font-size: 18px;
+      letter-spacing: 0.24em;
+      font-weight: 600;
+      pointer-events: auto;
+      user-select: none;
+    }
+
+    .nav-link {
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      pointer-events: auto;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+
+    .nav-link:hover {
+      opacity: 1;
+    }
+
+    /* 顶部刻度条 */
+    .ticks {
+      position: fixed;
+      top: 26px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 260px;
+      height: 6px;
+      display: flex;
+      justify-content: space-between;
+      opacity: 0.35;
+      pointer-events: none;
+      z-index: 4;
+    }
+
+    .tick {
+      width: 2px;
+      height: 100%;
+      background: #f5f5f5;
+    }
+
+    /* 底部右侧信息 */
+    .bottom-right {
+      position: fixed;
+      right: 40px;
+      bottom: 32px;
+      font-size: 11px;
+      text-align: right;
+      line-height: 1.4;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      opacity: 0.7;
+      pointer-events: none;
+      z-index: 5;
+    }
+
+    /* 中间 3D 画廊区域 */
+    .stage {
+      position: absolute;
+      left: 50%;
+      top: 55%;
+      transform: translate(-50%, -50%);
+      perspective: 1600px;
+      width: 100%;
+      max-width: 1200px;
+      height: 420px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .carousel {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      transform-style: preserve-3d;
+    }
+
+    .panel {
+      position: absolute;
+      top: 0;
+      left: 50%;
+      width: 120px;
+      height: 340px;
+      transform-origin: center bottom;
+      border-radius: 18px;
+      overflow: hidden;
+      background: #222;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.85);
+      cursor: pointer;
+      transition:
+        box-shadow 0.25s ease,
+        filter 0.25s ease,
+        border-radius 0.25s ease;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(180deg, #888, #111);
+    }
+
+    /* 渐变色块占位，方便后面换图 */
+    .panel:nth-child(1)::before { background: linear-gradient(180deg, #f7b267, #111); }
+    .panel:nth-child(2)::before { background: linear-gradient(180deg, #f4845f, #111); }
+    .panel:nth-child(3)::before { background: linear-gradient(180deg, #f25c54, #111); }
+    .panel:nth-child(4)::before { background: linear-gradient(180deg, #c77dff, #111); }
+    .panel:nth-child(5)::before { background: linear-gradient(180deg, #5a4fff, #111); }
+    .panel:nth-child(6)::before { background: linear-gradient(180deg, #3c91e6, #111); }
+    .panel:nth-child(7)::before { background: linear-gradient(180deg, #2ec4b6, #111); }
+    .panel:nth-child(8)::before { background: linear-gradient(180deg, #55d6c2, #111); }
+    .panel:nth-child(9)::before { background: linear-gradient(180deg, #ffc857, #111); }
+    .panel:nth-child(10)::before { background: linear-gradient(180deg, #ff6b6b, #111); }
+    .panel:nth-child(11)::before { background: linear-gradient(180deg, #ff9f1c, #111); }
+    .panel:nth-child(12)::before { background: linear-gradient(180deg, #4cc9f0, #111); }
+
+    .panel.is-active {
+      box-shadow: 0 36px 80px rgba(0, 0, 0, 0.98);
+      filter: brightness(1.1);
+      border-radius: 22px;
+    }
+
+    @media (max-width: 900px) {
+      .stage {
+        transform: translate(-50%, -45%);
+        max-width: 100%;
+      }
+
+      .panel {
+        width: 88px;
+        height: 280px;
+      }
+
+      .top-bar {
+        padding: 0 20px;
+      }
+
+      .bottom-right {
+        right: 20px;
+        bottom: 16px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="top-bar">
+    <div class="logo">DUXIN</div>
+    <div class="nav-link">ABOUT</div>
+  </header>
+
+  <div class="ticks">
+    <!-- 24 个刻度 -->
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+    <div class="tick"></div><div class="tick"></div><div class="tick"></div><div class="tick"></div>
+  </div>
+
+  <div class="bottom-right">
+    EMAIL<br />
+    INSTAGRAM<br />
+    TWITTER
+  </div>
+
+  <!-- 中间 3D 画廊 -->
+  <main class="stage">
+    <div class="carousel" id="carousel">
+      <!-- 12 个卡片，之后可以换成真正作品 -->
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+      <div class="panel"></div>
+    </div>
+  </main>
+
+  <script>
+    const panels = Array.from(document.querySelectorAll(".panel"));
+    const total = panels.length;
+
+    // 一条弧线的角度范围（越大越“开”）
+    const SPREAD = Math.PI * 1.3; // 弧度
+    const RADIUS = 900;           // 圆环半径
+
+    let rotationTarget = 0;       // 目标旋转量（弧度）
+    let rotationCurrent = 0;      // 实际旋转量，做缓动
+
+    function layout() {
+      // 缓动追踪，有惯性
+      rotationCurrent += (rotationTarget - rotationCurrent) * 0.08;
+
+      panels.forEach((panel, i) => {
+        // t 从 0~1，映射到 -SPREAD/2 ~ +SPREAD/2
+        const t = total === 1 ? 0.5 : i / (total - 1);
+        const baseAngle = SPREAD * (t - 0.5);  // 基本角度（固定弧线）
+        const angle = baseAngle + rotationCurrent; // 叠加滚轮旋转
+        const deg = angle * 180 / Math.PI;
+
+        // 轻微下垂，模拟弧形
+        const baseYOffset = 40 + Math.abs(baseAngle) * 28;
+
+        // 距离正中间的角度差，用来控制高亮/缩放
+        const diff = Math.abs(angle % (2 * Math.PI));
+        const wrappedDiff = diff > Math.PI ? 2 * Math.PI - diff : diff; // 0 ~ π
+        const frontFactor = 1 - wrappedDiff / Math.PI; // 0（背面）~1（正中）
+
+        const scale = 0.75 + frontFactor * 0.35;
+        const opacity = 0.08 + frontFactor * 0.95;
+
+        panel.style.transform =
+          `translateX(-50%) translateY(${baseYOffset}px) rotateY(${deg}deg) translateZ(${RADIUS}px) scale(${scale})`;
+        panel.style.opacity = opacity;
+        panel.style.zIndex = String(1000 + Math.round(frontFactor * 100));
+
+        if (frontFactor > 0.88) {
+          panel.classList.add("is-active");
+        } else {
+          panel.classList.remove("is-active");
+        }
+      });
+
+      requestAnimationFrame(layout);
+    }
+
+    layout();
+
+    // 鼠标滚轮：左右旋转环形画廊，有来有回（无限循环）
+    window.addEventListener(
+      "wheel",
+      (event) => {
+        event.preventDefault();
+
+        const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY)
+          ? event.deltaX
+          : event.deltaY;
+
+        // 系数控制转动速度
+        rotationTarget += delta * 0.0012;
+      },
+      { passive: false }
+    );
+  </script>
+</body>
+</html>
