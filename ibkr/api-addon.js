@@ -4,29 +4,46 @@
     pdfModeButton: $("pdfModeButton"), apiModeButton: $("apiModeButton"), uploadPanel: $("uploadPanel"), apiPanel: $("apiPanel"),
     apiForm: $("apiForm"), token: $("flexTokenInput"), queryId: $("queryIdInput"), proxy: $("proxyUrlInput"), remember: $("rememberApiInput"),
     statusPanel: $("statusPanel"), statusText: $("statusText"), errorPanel: $("errorPanel"), errorText: $("errorText"), resultPanel: $("resultPanel"), resetButton: $("resetButton"),
+    pdfInput: $("pdfInput"), captureArea: $("captureArea"),
     endingValue: $("endingValue"), cumulativeDeposit: $("cumulativeDeposit"), totalProfit: $("totalProfit"), profitRate: $("profitRate"), rankList: $("rankList"), symbolCount: $("symbolCount"),
   };
+  const state = { activeMode: currentMode(), resultHtml: { pdf: "", api: "" } };
 
   els.queryId.value = localStorage.getItem("ibkrFlexQueryId") || "";
   els.proxy.value = localStorage.getItem("ibkrFlexProxyUrl") || "";
-  els.pdfModeButton.addEventListener("click", () => setMode("pdf"));
-  els.apiModeButton.addEventListener("click", () => setMode("api"));
-  els.resetButton.addEventListener("click", () => setTimeout(() => setMode(currentMode()), 0));
-  els.apiForm.addEventListener("submit", fetchFlexReport);
+  els.pdfModeButton.addEventListener("click", (event) => switchMode(event, "pdf"), true);
+  els.apiModeButton.addEventListener("click", (event) => switchMode(event, "api"), true);
+  els.resetButton.addEventListener("click", resetCurrentMode, true);
+  els.apiForm.addEventListener("submit", fetchFlexReport, true);
 
   function currentMode() { return els.apiModeButton.classList.contains("active") ? "api" : "pdf"; }
 
+  function switchMode(event, mode) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    saveVisibleResult();
+    setMode(mode);
+  }
+
   function setMode(mode) {
     const api = mode === "api";
+    state.activeMode = api ? "api" : "pdf";
     els.pdfModeButton.classList.toggle("active", !api);
     els.apiModeButton.classList.toggle("active", api);
     hideAll();
+    if (state.resultHtml[state.activeMode]) {
+      els.captureArea.innerHTML = state.resultHtml[state.activeMode];
+      els.resultPanel.hidden = false;
+      els.resetButton.hidden = false;
+      return;
+    }
     (api ? els.apiPanel : els.uploadPanel).hidden = false;
     els.resetButton.hidden = true;
   }
 
   async function fetchFlexReport(event) {
     event.preventDefault();
+    event.stopImmediatePropagation();
     const token = els.token.value.trim();
     const queryId = els.queryId.value.trim();
     const proxy = els.proxy.value.trim().replace(/\/+$/, "");
@@ -42,6 +59,7 @@
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || "IBKR API 获取失败，请检查 Token、Query ID 或代理地址。");
       showStatus("正在解析 IBKR Flex 数据...");
       renderResults(parseFlexXmlReport(payload.statement));
+      saveVisibleResult();
     } catch (error) {
       showError(error.message || "IBKR API 获取失败，请稍后重试。");
     }
@@ -141,6 +159,23 @@
     els.profitRate.classList.toggle("negative", s.profitRate < 0);
     els.symbolCount.textContent = `${parsed.symbolProfits.length} 个标的`;
     els.rankList.innerHTML = parsed.symbolProfits.map((item, i) => `<article class="rank-card"><div class="rank-main"><div class="symbol"><span class="rank-index">${i + 1}</span><strong>${escapeHtml(item.symbol)}</strong></div><div class="profit-value ${item.totalProfit < 0 ? "negative" : ""}">${money(item.totalProfit, s.currency, true)}</div></div><div class="metric-grid">${metric("已实现盈亏", item.stockRealizedPL, s.currency)}${metric("未实现盈亏", item.stockUnrealizedPL, s.currency)}${metric("期权收益", item.optionProfit, s.currency)}</div></article>`).join("");
+  }
+
+  function saveVisibleResult() {
+    if (!els.resultPanel.hidden && els.captureArea?.innerHTML) {
+      state.resultHtml[state.activeMode] = els.captureArea.innerHTML;
+    }
+  }
+
+  function resetCurrentMode(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    state.resultHtml[state.activeMode] = "";
+    if (state.activeMode === "pdf" && els.pdfInput) els.pdfInput.value = "";
+    hideAll();
+    if (state.activeMode === "api") els.apiPanel.hidden = false;
+    else els.uploadPanel.hidden = false;
+    els.resetButton.hidden = true;
   }
 
   function metric(label, value, currency) { return `<div class="metric"><span>${label}</span><strong class="${value < 0 ? "negative" : value > 0 ? "positive" : ""}">${money(value, currency, true)}</strong></div>`; }
