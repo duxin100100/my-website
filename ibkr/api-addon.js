@@ -84,18 +84,27 @@
 
   function parseSymbols(records) {
     const buckets = new Map();
+    const stockRealized = buildRealizedLookup(records, "STK");
     for (const { tag, data } of records) {
       const symbol = first(data, ["underlyingsymbol", "symbol", "ticker"]); if (!symbol) continue;
       const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
       const desc = String(first(data, ["description", "desc", "name"]));
       const option = /OPT|OPTION/.test(asset) || data.putcall || data.expiry || data.strike || /\b\d{1,2}[A-Z]{3}\d{2}\b|\b(CALL|PUT)\b/i.test(desc);
-      const normalized = option ? underlying(`${symbol} ${desc}`) : normalizeSymbol(symbol);
+      const normalized = normalizeSymbol(data.underlyingsymbol || (option ? underlying(`${symbol} ${desc}`) : symbol));
       const bucket = getBucket(buckets, normalized || "UNKNOWN");
       if (tag === "mtmperformancesummaryunderlying") {
         const total = firstAmount(data, ["total", "totalwithaccruals"]);
         if (!Number.isFinite(total)) continue;
         if (option) bucket.optionProfit += total;
-        else bucket.stockUnrealizedPL += total;
+        else {
+          const realized = stockRealized.get(normalized);
+          if (Number.isFinite(realized)) {
+            bucket.stockRealizedPL += realized;
+            bucket.stockUnrealizedPL += total - realized;
+          } else {
+            bucket.stockUnrealizedPL += total;
+          }
+        }
         continue;
       }
       const realized = firstAmount(data, ["stockrealizedpl", "realizedpl", "realizedpnl", "realizedprofitloss", "totalrealizedpl", "mtmrealizedpnl", "fifopnlrealized"]);
@@ -105,6 +114,20 @@
       else { bucket.stockRealizedPL += Number.isFinite(realized) ? realized : 0; bucket.stockUnrealizedPL += Number.isFinite(unrealized) ? unrealized : 0; }
     }
     return [...buckets.values()].map((x) => ({ ...x, stockRealizedPL: round(x.stockRealizedPL), stockUnrealizedPL: round(x.stockUnrealizedPL), optionProfit: round(x.optionProfit), totalProfit: round(x.stockRealizedPL + x.stockUnrealizedPL + x.optionProfit) })).filter((x) => Math.abs(x.totalProfit) > 0.004).sort((a, b) => b.totalProfit - a.totalProfit);
+  }
+
+  function buildRealizedLookup(records, assetPrefix) {
+    const lookup = new Map();
+    for (const { tag, data } of records) {
+      if (tag !== "mtdytdperformancesummaryunderlying") continue;
+      const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
+      if (!asset.startsWith(assetPrefix)) continue;
+      const symbol = normalizeSymbol(data.underlyingsymbol || data.symbol || "");
+      if (!symbol) continue;
+      const realized = firstAmount(data, ["realizedpnlytd", "realizedpnlmtd"]);
+      if (Number.isFinite(realized)) lookup.set(symbol, realized);
+    }
+    return lookup;
   }
 
   function renderResults(parsed) {
