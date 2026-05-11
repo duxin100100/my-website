@@ -1,0 +1,100 @@
+.mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 6px;
+  margin-bottom: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.mode-button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mode-button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.api-panel {
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+}
+
+.api-form {
+  display: grid;
+  gap: 12px;
+}
+
+.api-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.api-form label > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.api-form input[type="text"],
+.api-form input[type="password"],
+.api-form input[type="url"] {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfb;
+  color: var(--ink);
+  padding: 10px 12px;
+  outline: none;
+}
+
+.api-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(28, 95, 74, 0.12);
+}
+
+.checkbox-row {
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+}
+
+.checkbox-row input {
+  margin-top: 2px;
+}
+
+.setup-help {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f7f8f7;
+}
+
+.setup-help summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.setup-help p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.setup-help code {
+  color: var(--accent);
+  font-weight: 700;
+}
