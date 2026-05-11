@@ -11,8 +11,8 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./assets/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="./assets/icon.svg" />
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/styles.css?v=api11" />
-    <link rel="stylesheet" href="./api.css?v=api11" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/styles.css?v=api12" />
+    <link rel="stylesheet" href="./api.css?v=api12" />
   </head>
   <body>
     <main class="app-shell">
@@ -45,7 +45,7 @@
           <label><span>Flex Token</span><input id="flexTokenInput" type="password" autocomplete="off" placeholder="从 IBKR Flex Web Service 获取" required /></label>
           <label><span>Query ID</span><input id="queryIdInput" type="text" inputmode="numeric" placeholder="Flex Query ID" required /></label>
           <label><span>代理地址</span><input id="proxyUrlInput" type="url" placeholder="https://your-worker.workers.dev" required /></label>
-          <label class="checkbox-row"><input id="rememberApiInput" type="checkbox" checked /><span>在本机保存 Query ID 和代理地址，不保存 Token</span></label>
+          <label class="checkbox-row"><input id="rememberApiInput" type="checkbox" checked /><span>在本机保存 Token、Query ID 和代理地址</span></label>
           <button class="primary-button" type="submit">从 IBKR 获取数据</button>
         </form>
         <details class="setup-help">
@@ -84,7 +84,7 @@
             </svg>
             <span>截图</span>
           </button>
-          <button class="primary-button action-button" id="refreshButton" type="button" aria-label="刷新">
+          <button class="primary-button action-button" id="apiRefreshButton" type="button" aria-label="刷新">
             <svg class="action-icon" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M21 12a9 9 0 1 1-2.64-6.36" />
               <path d="M21 4v6h-6" />
@@ -95,10 +95,43 @@
       </section>
     </main>
     <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <script type="module" src="https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/app.js?v=api11"></script>
-    <script src="./api-addon.js?v=api11"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/app.js?v=api12"></script>
+    <script src="./api-addon.js?v=api12"></script>
     <script>
-      document.getElementById("refreshButton")?.addEventListener("click", () => window.location.reload());
+      (() => {
+        const token = document.getElementById("flexTokenInput");
+        const queryId = document.getElementById("queryIdInput");
+        const proxy = document.getElementById("proxyUrlInput");
+        const remember = document.getElementById("rememberApiInput");
+        const form = document.getElementById("apiForm");
+        const refresh = document.getElementById("apiRefreshButton");
+
+        token.value = localStorage.getItem("ibkrFlexToken") || token.value;
+
+        form?.addEventListener(
+          "submit",
+          () => {
+            if (remember?.checked) {
+              localStorage.setItem("ibkrFlexToken", token.value.trim());
+              localStorage.setItem("ibkrFlexQueryId", queryId.value.trim());
+              localStorage.setItem("ibkrFlexProxyUrl", proxy.value.trim());
+            } else {
+              localStorage.removeItem("ibkrFlexToken");
+              localStorage.removeItem("ibkrFlexQueryId");
+              localStorage.removeItem("ibkrFlexProxyUrl");
+            }
+          },
+          true,
+        );
+
+        refresh?.addEventListener("click", (event) => {
+          event.preventDefault();
+          token.value = token.value.trim() || localStorage.getItem("ibkrFlexToken") || "";
+          queryId.value = queryId.value.trim() || localStorage.getItem("ibkrFlexQueryId") || "";
+          proxy.value = proxy.value.trim() || localStorage.getItem("ibkrFlexProxyUrl") || "";
+          form?.requestSubmit();
+        });
+      })();
     </script>
   </body>
 </html>
