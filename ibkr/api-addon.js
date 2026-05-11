@@ -56,7 +56,7 @@
     const endingValue = findAmount(records, ["endingvalue", "endingnetliquidationvalue", "netliquidationvalue", "totalendingvalue", "endingnav", "endingequity"]);
     if (!Number.isFinite(cumulativeDeposit) || !Number.isFinite(endingValue)) throw new Error("未能从 Flex 数据识别累积存款或结束价值，请检查 Flex Query 设置。");
     const symbolProfits = parseSymbols(records);
-    if (!symbolProfits.length) throw new Error("未能从 Flex 数据识别股票收益，请确认 Flex Query 包含 Realized/Unrealized Performance Summary。");
+    if (!symbolProfits.length) throw new Error("未能从 Flex 数据识别股票收益，请确认 Flex Query 包含 MTM 或 Realized/Unrealized Performance Summary。");
     return { accountSummary: { cumulativeDeposit, endingValue, totalProfit: round(endingValue - cumulativeDeposit), profitRate: cumulativeDeposit ? (endingValue - cumulativeDeposit) / cumulativeDeposit : 0, currency }, symbolProfits };
   }
 
@@ -84,16 +84,23 @@
 
   function parseSymbols(records) {
     const buckets = new Map();
-    for (const { data } of records) {
+    for (const { tag, data } of records) {
       const symbol = first(data, ["underlyingsymbol", "symbol", "ticker"]); if (!symbol) continue;
       const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
       const desc = String(first(data, ["description", "desc", "name"]));
       const option = /OPT|OPTION/.test(asset) || data.putcall || data.expiry || data.strike || /\b\d{1,2}[A-Z]{3}\d{2}\b|\b(CALL|PUT)\b/i.test(desc);
+      const normalized = option ? underlying(`${symbol} ${desc}`) : normalizeSymbol(symbol);
+      const bucket = getBucket(buckets, normalized || "UNKNOWN");
+      if (tag === "mtmperformancesummaryunderlying") {
+        const total = firstAmount(data, ["total", "totalwithaccruals"]);
+        if (!Number.isFinite(total)) continue;
+        if (option) bucket.optionProfit += total;
+        else bucket.stockUnrealizedPL += total;
+        continue;
+      }
       const realized = firstAmount(data, ["stockrealizedpl", "realizedpl", "realizedpnl", "realizedprofitloss", "totalrealizedpl", "mtmrealizedpnl", "fifopnlrealized"]);
       const unrealized = firstAmount(data, ["stockunrealizedpl", "unrealizedpl", "unrealizedpnl", "unrealizedprofitloss", "totalunrealizedpl", "mtmunrealizedpnl", "fifopnlunrealized"]);
       if (!Number.isFinite(realized) && !Number.isFinite(unrealized)) continue;
-      const normalized = option ? underlying(`${symbol} ${desc}`) : normalizeSymbol(symbol);
-      const bucket = getBucket(buckets, normalized || "UNKNOWN");
       if (option) bucket.optionProfit += Number.isFinite(realized) ? realized : 0;
       else { bucket.stockRealizedPL += Number.isFinite(realized) ? realized : 0; bucket.stockUnrealizedPL += Number.isFinite(unrealized) ? unrealized : 0; }
     }
