@@ -105,8 +105,15 @@
         const remember = document.getElementById("rememberApiInput");
         const form = document.getElementById("apiForm");
         const refresh = document.getElementById("apiRefreshButton");
+        const apiMode = document.getElementById("apiModeButton");
+        const pdfMode = document.getElementById("pdfModeButton");
+        const resultPanel = document.getElementById("resultPanel");
 
         token.value = localStorage.getItem("ibkrFlexToken") || token.value;
+
+        const syncRefreshVisibility = () => {
+          document.body.classList.toggle("api-result", !resultPanel.hidden && apiMode.classList.contains("active"));
+        };
 
         form?.addEventListener(
           "submit",
@@ -131,6 +138,11 @@
           proxy.value = proxy.value.trim() || localStorage.getItem("ibkrFlexProxyUrl") || "";
           form?.requestSubmit();
         });
+
+        apiMode?.addEventListener("click", () => window.setTimeout(syncRefreshVisibility, 0));
+        pdfMode?.addEventListener("click", () => window.setTimeout(syncRefreshVisibility, 0));
+        new MutationObserver(syncRefreshVisibility).observe(resultPanel, { attributes: true, attributeFilter: ["hidden"] });
+        syncRefreshVisibility();
       })();
     </script>
   </body>
