@@ -1,13 +1,13 @@
-const CACHE_VERSION = "ibkr-report-v7";
+const CACHE_VERSION = "ibkr-report-v8";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
   "./assets/icon.svg",
   "./api.css",
-  "./api-addon.js?v=api7",
-  "https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/app.js?v=api7",
-  "https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/styles.css",
+  "./api-addon.js?v=api8",
+  "https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/app.js?v=api8",
+  "https://cdn.jsdelivr.net/gh/duxin100100/-@main/src/styles.css?v=api8",
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs",
   "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs",
   "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
