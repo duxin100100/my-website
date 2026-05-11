@@ -4,16 +4,18 @@
     pdfModeButton: $("pdfModeButton"), apiModeButton: $("apiModeButton"), uploadPanel: $("uploadPanel"), apiPanel: $("apiPanel"),
     apiForm: $("apiForm"), token: $("flexTokenInput"), queryId: $("queryIdInput"), proxy: $("proxyUrlInput"), remember: $("rememberApiInput"),
     statusPanel: $("statusPanel"), statusText: $("statusText"), errorPanel: $("errorPanel"), errorText: $("errorText"), resultPanel: $("resultPanel"), resetButton: $("resetButton"),
-    pdfInput: $("pdfInput"), captureArea: $("captureArea"),
+    pdfInput: $("pdfInput"), captureArea: $("captureArea"), refreshButton: $("refreshButton"),
     endingValue: $("endingValue"), cumulativeDeposit: $("cumulativeDeposit"), totalProfit: $("totalProfit"), profitRate: $("profitRate"), rankList: $("rankList"), symbolCount: $("symbolCount"),
   };
   const state = { activeMode: currentMode(), resultHtml: { pdf: "", api: "" } };
 
+  els.token.value = localStorage.getItem("ibkrFlexToken") || "";
   els.queryId.value = localStorage.getItem("ibkrFlexQueryId") || "";
   els.proxy.value = localStorage.getItem("ibkrFlexProxyUrl") || "";
   els.pdfModeButton.addEventListener("click", (event) => switchMode(event, "pdf"), true);
   els.apiModeButton.addEventListener("click", (event) => switchMode(event, "api"), true);
   els.resetButton.addEventListener("click", resetCurrentMode, true);
+  els.refreshButton?.addEventListener("click", refreshApiData, true);
   els.apiForm.addEventListener("submit", fetchFlexReport, true);
 
   function currentMode() { return els.apiModeButton.classList.contains("active") ? "api" : "pdf"; }
@@ -42,15 +44,20 @@
   }
 
   async function fetchFlexReport(event) {
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    event?.preventDefault();
+    event?.stopImmediatePropagation();
     const token = els.token.value.trim();
     const queryId = els.queryId.value.trim();
     const proxy = els.proxy.value.trim().replace(/\/+$/, "");
     if (!token || !queryId || !proxy) return showError("请填写 Flex Token、Query ID 和代理地址。");
     if (els.remember.checked) {
+      localStorage.setItem("ibkrFlexToken", token);
       localStorage.setItem("ibkrFlexQueryId", queryId);
       localStorage.setItem("ibkrFlexProxyUrl", proxy);
+    } else {
+      localStorage.removeItem("ibkrFlexToken");
+      localStorage.removeItem("ibkrFlexQueryId");
+      localStorage.removeItem("ibkrFlexProxyUrl");
     }
     showStatus("正在连接 IBKR Flex Web Service...");
     try {
@@ -103,6 +110,8 @@
   function parseSymbols(records) {
     const buckets = new Map();
     const stockRealized = buildRealizedLookup(records, "STK");
+    const stockOpenUnrealized = buildOpenUnrealizedLookup(records, "STK");
+    const appliedOpenUnrealized = new Set();
     for (const { tag, data } of records) {
       const symbol = first(data, ["underlyingsymbol", "symbol", "ticker"]); if (!symbol) continue;
       const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
@@ -110,6 +119,7 @@
       const option = /OPT|OPTION/.test(asset) || data.putcall || data.expiry || data.strike || /\b\d{1,2}[A-Z]{3}\d{2}\b|\b(CALL|PUT)\b/i.test(desc);
       const normalized = normalizeSymbol(data.underlyingsymbol || (option ? underlying(`${symbol} ${desc}`) : symbol));
       const bucket = getBucket(buckets, normalized || "UNKNOWN");
+      if (isOpenPositionTag(tag)) continue;
       if (tag === "mtmperformancesummaryunderlying") {
         const total = firstAmount(data, ["total", "totalwithaccruals"]);
         if (!Number.isFinite(total)) continue;
@@ -118,9 +128,19 @@
           const realized = stockRealized.get(normalized);
           if (Number.isFinite(realized)) {
             bucket.stockRealizedPL += realized;
-            bucket.stockUnrealizedPL += total - realized;
+            if (stockOpenUnrealized.has(normalized)) {
+              bucket.stockUnrealizedPL += stockOpenUnrealized.get(normalized);
+              appliedOpenUnrealized.add(normalized);
+            } else {
+              bucket.stockUnrealizedPL += total - realized;
+            }
           } else {
-            bucket.stockUnrealizedPL += total;
+            if (stockOpenUnrealized.has(normalized)) {
+              bucket.stockUnrealizedPL += stockOpenUnrealized.get(normalized);
+              appliedOpenUnrealized.add(normalized);
+            } else {
+              bucket.stockUnrealizedPL += total;
+            }
           }
         }
         continue;
@@ -130,6 +150,9 @@
       if (!Number.isFinite(realized) && !Number.isFinite(unrealized)) continue;
       if (option) bucket.optionProfit += Number.isFinite(realized) ? realized : 0;
       else { bucket.stockRealizedPL += Number.isFinite(realized) ? realized : 0; bucket.stockUnrealizedPL += Number.isFinite(unrealized) ? unrealized : 0; }
+    }
+    for (const [symbol, unrealized] of stockOpenUnrealized) {
+      if (!appliedOpenUnrealized.has(symbol)) getBucket(buckets, symbol).stockUnrealizedPL += unrealized;
     }
     return [...buckets.values()].map((x) => ({ ...x, stockRealizedPL: round(x.stockRealizedPL), stockUnrealizedPL: round(x.stockUnrealizedPL), optionProfit: round(x.optionProfit), totalProfit: round(x.stockRealizedPL + x.stockUnrealizedPL + x.optionProfit) })).filter((x) => Math.abs(x.totalProfit) > 0.004).sort((a, b) => b.totalProfit - a.totalProfit);
   }
@@ -148,9 +171,28 @@
     return lookup;
   }
 
+  function buildOpenUnrealizedLookup(records, assetPrefix) {
+    const lookup = new Map();
+    for (const { tag, data } of records) {
+      if (!isOpenPositionTag(tag)) continue;
+      const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
+      if (asset && !asset.startsWith(assetPrefix) && !/STK|STOCK|EQUITY/.test(asset)) continue;
+      const symbol = normalizeSymbol(first(data, ["underlyingsymbol", "symbol", "ticker"]));
+      if (!symbol) continue;
+      const unrealized = firstAmount(data, ["unrealizedpl", "unrealizedpnl", "unrealizedprofitloss", "totalunrealizedpl", "mtmunrealizedpnl", "fifopnlunrealized", "unrealizedpnlbase", "unrealizedplbase"]);
+      if (Number.isFinite(unrealized)) lookup.set(symbol, (lookup.get(symbol) || 0) + unrealized);
+    }
+    return lookup;
+  }
+
+  function isOpenPositionTag(tag) {
+    return /openposition|position/.test(tag) && !/performance|summary|trade|transaction/.test(tag);
+  }
+
   function renderResults(parsed) {
     const s = parsed.accountSummary;
     hideAll(); els.resultPanel.hidden = false; els.resetButton.hidden = false;
+    document.body.classList.toggle("api-result", state.activeMode === "api");
     els.endingValue.textContent = money(s.endingValue, s.currency, false);
     els.cumulativeDeposit.textContent = money(s.cumulativeDeposit, s.currency, false);
     els.totalProfit.textContent = money(s.totalProfit, s.currency, true);
@@ -178,10 +220,17 @@
     els.resetButton.hidden = true;
   }
 
+  async function refreshApiData(event) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    if (state.activeMode !== "api") return;
+    await fetchFlexReport();
+  }
+
   function metric(label, value, currency) { return `<div class="metric"><span>${label}</span><strong class="${value < 0 ? "negative" : value > 0 ? "positive" : ""}">${money(value, currency, true)}</strong></div>`; }
   function showStatus(message) { hideAll(); els.statusPanel.hidden = false; els.statusText.textContent = message; els.resetButton.hidden = true; }
   function showError(message) { hideAll(); els.errorPanel.hidden = false; els.errorText.textContent = message; els.resetButton.hidden = false; }
-  function hideAll() { els.uploadPanel.hidden = true; els.apiPanel.hidden = true; els.statusPanel.hidden = true; els.errorPanel.hidden = true; els.resultPanel.hidden = true; }
+  function hideAll() { document.body.classList.remove("api-result"); els.uploadPanel.hidden = true; els.apiPanel.hidden = true; els.statusPanel.hidden = true; els.errorPanel.hidden = true; els.resultPanel.hidden = true; }
   function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("IBKR API 请求超时，IBKR 可能还在生成 365 天 Flex 数据，请稍后再试。")), ms))]); }
   function first(data, names) { for (const n of names) if (data[key(n)] !== undefined && data[key(n)] !== "") return data[key(n)]; return ""; }
   function firstAmount(data, names) { for (const n of names) { const v = data[key(n)]; if (v !== undefined) { const a = amountOf(v); if (Number.isFinite(a)) return a; } } return NaN; }
