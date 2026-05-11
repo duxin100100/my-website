@@ -166,23 +166,38 @@ body {
   bottom: calc(108px + env(safe-area-inset-bottom)) !important;
   width: auto !important;
   z-index: 9999 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
   padding: 0 !important;
   background: transparent !important;
   pointer-events: none !important;
 }
 
-.result-panel > .actions #exportButton {
+.result-panel > .actions .action-button {
   display: grid !important;
   place-items: center !important;
+  align-content: center !important;
+  gap: 2px !important;
   width: 52px !important;
   height: 52px !important;
   min-height: 52px !important;
   padding: 0 !important;
   border-radius: 999px !important;
   box-shadow: 0 10px 24px rgba(28, 95, 74, 0.24) !important;
-  font-size: 13px !important;
+  font-size: 11px !important;
   line-height: 1 !important;
   pointer-events: auto !important;
+}
+
+.result-panel > .actions .action-icon {
+  width: 18px !important;
+  height: 18px !important;
+  fill: none !important;
+  stroke: currentColor !important;
+  stroke-width: 2 !important;
+  stroke-linecap: round !important;
+  stroke-linejoin: round !important;
 }
 
 @media (min-width: 680px) {
