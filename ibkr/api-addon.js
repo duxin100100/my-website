@@ -37,7 +37,7 @@
     }
     showStatus("正在连接 IBKR Flex Web Service...");
     try {
-      const response = await withTimeout(fetch(proxy, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, queryId }) }), 90000);
+      const response = await withTimeout(fetch(proxy, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, queryId }) }), 300000);
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || "IBKR API 获取失败，请检查 Token、Query ID 或代理地址。");
       showStatus("正在解析 IBKR Flex 数据...");
@@ -124,7 +124,7 @@
   function showStatus(message) { hideAll(); els.statusPanel.hidden = false; els.statusText.textContent = message; els.resetButton.hidden = true; }
   function showError(message) { hideAll(); els.errorPanel.hidden = false; els.errorText.textContent = message; els.resetButton.hidden = false; }
   function hideAll() { els.uploadPanel.hidden = true; els.apiPanel.hidden = true; els.statusPanel.hidden = true; els.errorPanel.hidden = true; els.resultPanel.hidden = true; }
-  function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("IBKR API 请求超时。")), ms))]); }
+  function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("IBKR API 请求超时，IBKR 可能还在生成 365 天 Flex 数据，请稍后再试。")), ms))]); }
   function first(data, names) { for (const n of names) if (data[key(n)] !== undefined && data[key(n)] !== "") return data[key(n)]; return ""; }
   function firstAmount(data, names) { for (const n of names) { const v = data[key(n)]; if (v !== undefined) { const a = amountOf(v); if (Number.isFinite(a)) return a; } } return NaN; }
   function getBucket(map, symbol) { if (!map.has(symbol)) map.set(symbol, { symbol, stockRealizedPL: 0, stockUnrealizedPL: 0, optionProfit: 0, totalProfit: 0 }); return map.get(symbol); }
