@@ -111,8 +111,9 @@
     const buckets = new Map();
     const stockRealized = buildRealizedLookup(records, "STK");
     const stockOpenUnrealized = buildOpenUnrealizedLookup(records, "STK");
-    const stockYtdUnrealized = buildYtdUnrealizedLookup(records, "STK");
+    const stockTradePerformance = buildStockTradePerformance(records);
     const appliedOpenUnrealized = new Set();
+    const appliedTradePerformance = new Set();
     for (const { tag, data } of records) {
       const symbol = first(data, ["underlyingsymbol", "symbol", "ticker"]); if (!symbol) continue;
       const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
@@ -134,23 +135,25 @@
         if (!Number.isFinite(total)) continue;
         if (option) bucket.optionProfit += total;
         else {
+          const tradePerformance = stockTradePerformance.get(normalized);
+          if (tradePerformance) {
+            bucket.stockRealizedPL += tradePerformance.realized;
+            bucket.stockUnrealizedPL += tradePerformance.unrealized;
+            appliedOpenUnrealized.add(normalized);
+            appliedTradePerformance.add(normalized);
+            continue;
+          }
           const realized = stockRealized.get(normalized);
           if (Number.isFinite(realized)) {
             bucket.stockRealizedPL += realized;
-            const preferredUnrealized = pickPreferredUnrealized(normalized, stockOpenUnrealized, stockYtdUnrealized);
-            if (Number.isFinite(preferredUnrealized)) {
-              bucket.stockUnrealizedPL += preferredUnrealized;
+            if (stockOpenUnrealized.has(normalized)) {
+              bucket.stockUnrealizedPL += stockOpenUnrealized.get(normalized);
               appliedOpenUnrealized.add(normalized);
-            } else {
-              bucket.stockUnrealizedPL += total - realized;
             }
           } else {
-            const preferredUnrealized = pickPreferredUnrealized(normalized, stockOpenUnrealized, stockYtdUnrealized);
-            if (Number.isFinite(preferredUnrealized)) {
-              bucket.stockUnrealizedPL += preferredUnrealized;
+            if (stockOpenUnrealized.has(normalized)) {
+              bucket.stockUnrealizedPL += stockOpenUnrealized.get(normalized);
               appliedOpenUnrealized.add(normalized);
-            } else {
-              bucket.stockUnrealizedPL += total;
             }
           }
         }
@@ -168,8 +171,12 @@
         appliedOpenUnrealized.add(symbol);
       }
     }
-    for (const [symbol, unrealized] of stockYtdUnrealized) {
-      if (!appliedOpenUnrealized.has(symbol)) getBucket(buckets, symbol).stockUnrealizedPL += unrealized;
+    for (const [symbol, item] of stockTradePerformance) {
+      if (!appliedTradePerformance.has(symbol)) {
+        const bucket = getBucket(buckets, symbol);
+        bucket.stockRealizedPL += item.realized;
+        bucket.stockUnrealizedPL += item.unrealized;
+      }
     }
     return [...buckets.values()].map((x) => ({ ...x, stockRealizedPL: round(x.stockRealizedPL), stockUnrealizedPL: round(x.stockUnrealizedPL), optionProfit: round(x.optionProfit), totalProfit: round(x.stockRealizedPL + x.stockUnrealizedPL + x.optionProfit) })).filter((x) => Math.abs(x.totalProfit) > 0.004).sort((a, b) => b.totalProfit - a.totalProfit);
   }
@@ -205,32 +212,69 @@
     return lookup;
   }
 
-  function buildYtdUnrealizedLookup(records, assetPrefix) {
-    const lookup = new Map();
-    for (const { tag, data } of records) {
-      if (tag !== "mtdytdperformancesummaryunderlying") continue;
-      const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
-      if (!asset.startsWith(assetPrefix)) continue;
-      const symbol = normalizeSymbol(data.underlyingsymbol || data.symbol || "");
-      if (!symbol) continue;
-      const mtmYtd = firstAmount(data, ["mtmytd"]);
-      const realizedYtd = firstAmount(data, ["realizedpnlytd"]);
-      if (Number.isFinite(mtmYtd) && Number.isFinite(realizedYtd)) lookup.set(symbol, mtmYtd - realizedYtd);
-    }
-    return lookup;
-  }
-
-  function pickPreferredUnrealized(symbol, openLookup, ytdLookup) {
-    if (openLookup.has(symbol)) return openLookup.get(symbol);
-    if (ytdLookup.has(symbol)) return ytdLookup.get(symbol);
-    return NaN;
-  }
-
   function hasMeaningfulOpenBasis(data) {
     return ["costbasismoney", "costbasisprice", "openprice", "averagecost", "avgcost"].some((name) => {
       const amount = amountOf(data[name]);
       return Number.isFinite(amount) && Math.abs(amount) > 0.004;
     });
+  }
+
+  function buildStockTradePerformance(records) {
+    const openMarks = new Map();
+    for (const { tag, data } of records) {
+      if (!isOpenPositionRecord(tag, data)) continue;
+      const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
+      const desc = String(first(data, ["description", "desc", "name", "localsymbol", "contractsymbol"]));
+      if (/OPT|OPTION|FOP|WAR/.test(asset) || data.putcall || data.expiry || data.strike || /\b\d{1,2}[A-Z]{3}\d{2}\b|\b(CALL|PUT)\b/i.test(desc)) continue;
+      const symbol = normalizeSymbol(first(data, ["underlyingsymbol", "symbol", "ticker", "localsymbol", "contractsymbol"]));
+      const quantity = firstAmount(data, ["position", "quantity", "qty"]);
+      const markPrice = firstAmount(data, ["markprice", "closeprice"]);
+      const fxRate = firstAmount(data, ["fxratetobase"]) || 1;
+      if (symbol && Number.isFinite(quantity) && Number.isFinite(markPrice)) openMarks.set(symbol, { quantity, markPrice, fxRate });
+    }
+
+    const bySymbol = new Map();
+    for (const { tag, data } of records) {
+      if (tag !== "trade") continue;
+      const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
+      if (!asset.startsWith("STK")) continue;
+      const symbol = normalizeSymbol(first(data, ["underlyingsymbol", "symbol", "ticker"]));
+      const quantity = firstAmount(data, ["quantity", "tradequantity", "qty"]);
+      const tradePrice = firstAmount(data, ["tradeprice", "price"]);
+      if (!symbol || !Number.isFinite(quantity) || !Number.isFinite(tradePrice) || Math.abs(quantity) < 0.000001) continue;
+      if (!bySymbol.has(symbol)) bySymbol.set(symbol, []);
+      bySymbol.get(symbol).push(data);
+    }
+
+    const result = new Map();
+    for (const [symbol, trades] of bySymbol) {
+      const lots = [];
+      let realized = 0;
+      for (const data of trades) {
+        const quantity = firstAmount(data, ["quantity", "tradequantity", "qty"]);
+        const tradePrice = firstAmount(data, ["tradeprice", "price"]);
+        const fxRate = firstAmount(data, ["fxratetobase"]) || 1;
+        const commission = Math.abs(firstAmount(data, ["ibcommission", "commission", "commissions"]) || 0);
+        if (quantity > 0) {
+          lots.push({ quantity, cost: tradePrice + commission / quantity });
+        } else if (quantity < 0) {
+          let sellQuantity = Math.abs(quantity);
+          const sellNetPrice = tradePrice - commission / sellQuantity;
+          while (sellQuantity > 0.000001 && lots.length) {
+            const lot = lots[0];
+            const matched = Math.min(sellQuantity, lot.quantity);
+            realized += (sellNetPrice - lot.cost) * matched * fxRate;
+            lot.quantity -= matched;
+            sellQuantity -= matched;
+            if (lot.quantity <= 0.000001) lots.shift();
+          }
+        }
+      }
+      const open = openMarks.get(symbol);
+      const unrealized = open ? lots.reduce((sum, lot) => sum + (open.markPrice - lot.cost) * lot.quantity * open.fxRate, 0) : 0;
+      if (Math.abs(realized) > 0.004 || Math.abs(unrealized) > 0.004) result.set(symbol, { realized, unrealized });
+    }
+    return result;
   }
 
   function isOpenPositionTag(tag) {
