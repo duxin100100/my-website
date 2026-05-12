@@ -120,6 +120,14 @@
       const normalized = normalizeSymbol(data.underlyingsymbol || (option ? underlying(`${symbol} ${desc}`) : symbol));
       const bucket = getBucket(buckets, normalized || "UNKNOWN");
       if (isOpenPositionTag(tag)) continue;
+      if (!option && isUnrealizedSummaryTag(tag)) {
+        const summaryUnrealized = findUnrealizedAmount(data, true);
+        if (Number.isFinite(summaryUnrealized)) {
+          bucket.stockUnrealizedPL += summaryUnrealized;
+          appliedOpenUnrealized.add(normalized);
+        }
+        continue;
+      }
       if (tag === "mtmperformancesummaryunderlying") {
         const total = firstAmount(data, ["total", "totalwithaccruals"]);
         if (!Number.isFinite(total)) continue;
@@ -146,7 +154,7 @@
         continue;
       }
       const realized = firstAmount(data, ["stockrealizedpl", "realizedpl", "realizedpnl", "realizedprofitloss", "totalrealizedpl", "mtmrealizedpnl", "fifopnlrealized"]);
-      const unrealized = firstAmount(data, ["stockunrealizedpl", "unrealizedpl", "unrealizedpnl", "unrealizedprofitloss", "totalunrealizedpl", "mtmunrealizedpnl", "fifopnlunrealized"]);
+      const unrealized = findUnrealizedAmount(data, false);
       if (!Number.isFinite(realized) && !Number.isFinite(unrealized)) continue;
       if (option) bucket.optionProfit += Number.isFinite(realized) ? realized : 0;
       else { bucket.stockRealizedPL += Number.isFinite(realized) ? realized : 0; bucket.stockUnrealizedPL += Number.isFinite(unrealized) ? unrealized : 0; }
@@ -174,12 +182,14 @@
   function buildOpenUnrealizedLookup(records, assetPrefix) {
     const lookup = new Map();
     for (const { tag, data } of records) {
-      if (!isOpenPositionTag(tag)) continue;
+      if (!isOpenPositionRecord(tag, data)) continue;
       const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
+      const desc = String(first(data, ["description", "desc", "name", "localsymbol", "contractsymbol"]));
+      if (/OPT|OPTION|FOP|WAR/.test(asset) || data.putcall || data.expiry || data.strike || /\b\d{1,2}[A-Z]{3}\d{2}\b|\b(CALL|PUT)\b/i.test(desc)) continue;
       if (asset && !asset.startsWith(assetPrefix) && !/STK|STOCK|EQUITY/.test(asset)) continue;
-      const symbol = normalizeSymbol(first(data, ["underlyingsymbol", "symbol", "ticker"]));
+      const symbol = normalizeSymbol(first(data, ["underlyingsymbol", "symbol", "ticker", "localsymbol", "contractsymbol"]));
       if (!symbol) continue;
-      const unrealized = firstAmount(data, ["unrealizedpl", "unrealizedpnl", "unrealizedprofitloss", "totalunrealizedpl", "mtmunrealizedpnl", "fifopnlunrealized", "unrealizedpnlbase", "unrealizedplbase"]);
+      const unrealized = findUnrealizedAmount(data, true);
       if (Number.isFinite(unrealized)) lookup.set(symbol, (lookup.get(symbol) || 0) + unrealized);
     }
     return lookup;
@@ -187,6 +197,41 @@
 
   function isOpenPositionTag(tag) {
     return /openposition|position/.test(tag) && !/performance|summary|trade|transaction/.test(tag);
+  }
+
+  function isOpenPositionRecord(tag, data) {
+    return isOpenPositionTag(tag) || (hasAnyKey(data, ["position", "quantity", "qty"]) && hasAnyKey(data, ["markprice", "markvalue", "positionvalue", "unrealizedpnl", "fifopnlunrealized"]));
+  }
+
+  function isUnrealizedSummaryTag(tag) {
+    return /unrealized/.test(tag) && /summary|performance/.test(tag) && !/realizedandunrealized|realizedunrealized/.test(tag);
+  }
+
+  function hasAnyKey(data, names) {
+    return names.some((name) => data[key(name)] !== undefined);
+  }
+
+  function findUnrealizedAmount(data, includeTotal) {
+    const explicit = firstAmount(data, [
+      "stockunrealizedpl",
+      "unrealizedpl",
+      "unrealizedpnl",
+      "unrealizedprofitloss",
+      "totalunrealizedpl",
+      "mtmunrealizedpnl",
+      "fifopnlunrealized",
+      "unrealizedpnlbase",
+      "unrealizedplbase",
+      "pnlunrealized",
+      ...(includeTotal ? ["total", "totalwithaccruals"] : []),
+    ]);
+    if (Number.isFinite(explicit)) return explicit;
+    const parts = Object.entries(data)
+      .filter(([field]) => /unrealized/.test(field) && !/percent|percentage|price|value/.test(field))
+      .map(([, value]) => amountOf(value))
+      .filter(Number.isFinite);
+    if (!parts.length) return NaN;
+    return parts.reduce((sum, value) => sum + value, 0);
   }
 
   function renderResults(parsed) {
