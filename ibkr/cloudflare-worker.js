@@ -1,4 +1,6 @@
 const IBKR_BASE = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService";
+const STATEMENT_ATTEMPTS = 12;
+const STATEMENT_RETRY_DELAY_MS = 3000;
 
 export default {
   async fetch(request) {
@@ -34,9 +36,18 @@ async function fetchStatement(token, referenceCode) {
   url.searchParams.set("t", token);
   url.searchParams.set("q", referenceCode);
   url.searchParams.set("v", "3");
-  const xml = await ibkrFetch(url);
-  if (/FlexStatementResponse/i.test(xml)) throw new Error(extractTag(xml, "ErrorMessage") || "IBKR statement is not ready yet. Try again in a moment.");
-  return xml;
+
+  for (let attempt = 1; attempt <= STATEMENT_ATTEMPTS; attempt += 1) {
+    const xml = await ibkrFetch(url);
+    if (!/FlexStatementResponse/i.test(xml)) return xml;
+
+    const errorMessage = extractTag(xml, "ErrorMessage") || "IBKR statement is not ready yet. Try again in a moment.";
+    const retryable = /incomplete|not ready|try again/i.test(errorMessage);
+    if (!retryable || attempt === STATEMENT_ATTEMPTS) throw new Error(errorMessage);
+    await delay(STATEMENT_RETRY_DELAY_MS);
+  }
+
+  throw new Error("IBKR statement is not ready yet. Try again in a moment.");
 }
 
 async function ibkrFetch(url) {
@@ -47,12 +58,16 @@ async function ibkrFetch(url) {
 }
 
 function extractTag(xml, tagName) {
-  const match = xml.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\\/${tagName}>`, "i"));
+  const match = xml.match(new RegExp(`<${tagName}[^>]*>([\\s\\S]*?)<\/${tagName}>`, "i"));
   return match ? decodeXml(match[1].trim()) : "";
 }
 
 function decodeXml(value) {
   return value.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&").replaceAll("&quot;", '"').replaceAll("&apos;", "'");
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function json(payload, status = 200) {
