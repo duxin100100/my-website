@@ -111,6 +111,7 @@
     const buckets = new Map();
     const stockRealized = buildRealizedLookup(records, "STK");
     const stockOpenUnrealized = buildOpenUnrealizedLookup(records, "STK");
+    const stockYtdUnrealized = buildYtdUnrealizedLookup(records, "STK");
     const appliedOpenUnrealized = new Set();
     for (const { tag, data } of records) {
       const symbol = first(data, ["underlyingsymbol", "symbol", "ticker"]); if (!symbol) continue;
@@ -136,15 +137,17 @@
           const realized = stockRealized.get(normalized);
           if (Number.isFinite(realized)) {
             bucket.stockRealizedPL += realized;
-            if (stockOpenUnrealized.has(normalized)) {
-              bucket.stockUnrealizedPL += stockOpenUnrealized.get(normalized);
+            const preferredUnrealized = pickPreferredUnrealized(normalized, stockOpenUnrealized, stockYtdUnrealized);
+            if (Number.isFinite(preferredUnrealized)) {
+              bucket.stockUnrealizedPL += preferredUnrealized;
               appliedOpenUnrealized.add(normalized);
             } else {
               bucket.stockUnrealizedPL += total - realized;
             }
           } else {
-            if (stockOpenUnrealized.has(normalized)) {
-              bucket.stockUnrealizedPL += stockOpenUnrealized.get(normalized);
+            const preferredUnrealized = pickPreferredUnrealized(normalized, stockOpenUnrealized, stockYtdUnrealized);
+            if (Number.isFinite(preferredUnrealized)) {
+              bucket.stockUnrealizedPL += preferredUnrealized;
               appliedOpenUnrealized.add(normalized);
             } else {
               bucket.stockUnrealizedPL += total;
@@ -160,6 +163,12 @@
       else { bucket.stockRealizedPL += Number.isFinite(realized) ? realized : 0; bucket.stockUnrealizedPL += Number.isFinite(unrealized) ? unrealized : 0; }
     }
     for (const [symbol, unrealized] of stockOpenUnrealized) {
+      if (!appliedOpenUnrealized.has(symbol)) {
+        getBucket(buckets, symbol).stockUnrealizedPL += unrealized;
+        appliedOpenUnrealized.add(symbol);
+      }
+    }
+    for (const [symbol, unrealized] of stockYtdUnrealized) {
       if (!appliedOpenUnrealized.has(symbol)) getBucket(buckets, symbol).stockUnrealizedPL += unrealized;
     }
     return [...buckets.values()].map((x) => ({ ...x, stockRealizedPL: round(x.stockRealizedPL), stockUnrealizedPL: round(x.stockUnrealizedPL), optionProfit: round(x.optionProfit), totalProfit: round(x.stockRealizedPL + x.stockUnrealizedPL + x.optionProfit) })).filter((x) => Math.abs(x.totalProfit) > 0.004).sort((a, b) => b.totalProfit - a.totalProfit);
@@ -190,9 +199,38 @@
       const symbol = normalizeSymbol(first(data, ["underlyingsymbol", "symbol", "ticker", "localsymbol", "contractsymbol"]));
       if (!symbol) continue;
       const unrealized = findUnrealizedAmount(data, true);
-      if (Number.isFinite(unrealized)) lookup.set(symbol, (lookup.get(symbol) || 0) + unrealized);
+      const hasBasis = hasMeaningfulOpenBasis(data);
+      if (Number.isFinite(unrealized) && (Math.abs(unrealized) > 0.004 || hasBasis)) lookup.set(symbol, (lookup.get(symbol) || 0) + unrealized);
     }
     return lookup;
+  }
+
+  function buildYtdUnrealizedLookup(records, assetPrefix) {
+    const lookup = new Map();
+    for (const { tag, data } of records) {
+      if (tag !== "mtdytdperformancesummaryunderlying") continue;
+      const asset = String(first(data, ["assetcategory", "assetclass", "sectype", "securitytype", "type"])).toUpperCase();
+      if (!asset.startsWith(assetPrefix)) continue;
+      const symbol = normalizeSymbol(data.underlyingsymbol || data.symbol || "");
+      if (!symbol) continue;
+      const mtmYtd = firstAmount(data, ["mtmytd"]);
+      const realizedYtd = firstAmount(data, ["realizedpnlytd"]);
+      if (Number.isFinite(mtmYtd) && Number.isFinite(realizedYtd)) lookup.set(symbol, mtmYtd - realizedYtd);
+    }
+    return lookup;
+  }
+
+  function pickPreferredUnrealized(symbol, openLookup, ytdLookup) {
+    if (openLookup.has(symbol)) return openLookup.get(symbol);
+    if (ytdLookup.has(symbol)) return ytdLookup.get(symbol);
+    return NaN;
+  }
+
+  function hasMeaningfulOpenBasis(data) {
+    return ["costbasismoney", "costbasisprice", "openprice", "averagecost", "avgcost"].some((name) => {
+      const amount = amountOf(data[name]);
+      return Number.isFinite(amount) && Math.abs(amount) > 0.004;
+    });
   }
 
   function isOpenPositionTag(tag) {
@@ -223,7 +261,10 @@
       "unrealizedpnlbase",
       "unrealizedplbase",
       "pnlunrealized",
-      ...(includeTotal ? ["total", "totalwithaccruals"] : []),
+      ...(includeTotal ? [
+      "total",
+      "totalwithaccruals",
+      ] : []),
     ]);
     if (Number.isFinite(explicit)) return explicit;
     const parts = Object.entries(data)
