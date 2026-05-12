@@ -61,7 +61,7 @@
     }
     showStatus("正在连接 IBKR Flex Web Service...");
     try {
-      const response = await withTimeout(fetch(proxy, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, queryId }) }), 300000);
+      const response = await postFlex(proxy, { token, queryId });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ok) throw new Error(payload?.error || "IBKR API 获取失败，请检查 Token、Query ID 或代理地址。");
       showStatus("正在解析 IBKR Flex 数据...");
@@ -317,7 +317,28 @@
   function showStatus(message) { hideAll(); els.statusPanel.hidden = false; els.statusText.textContent = message; els.resetButton.hidden = true; }
   function showError(message) { hideAll(); els.errorPanel.hidden = false; els.errorText.textContent = message; els.resetButton.hidden = false; }
   function hideAll() { document.body.classList.remove("api-result"); els.uploadPanel.hidden = true; els.apiPanel.hidden = true; els.statusPanel.hidden = true; els.errorPanel.hidden = true; els.resultPanel.hidden = true; }
-  function withTimeout(promise, ms) { return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error("IBKR API 请求超时，IBKR 可能还在生成 365 天 Flex 数据，请稍后再试。")), ms))]); }
+  async function postFlex(proxy, body) {
+    let lastError;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 60000);
+      try {
+        return await fetch(proxy, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+          signal: controller.signal,
+        });
+      } catch (error) {
+        lastError = error;
+        if (attempt === 1) showStatus("IBKR API 连接较慢，正在自动重试...");
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    if (lastError?.name === "AbortError") throw new Error("IBKR API 请求超时，请稍后再试。");
+    throw lastError || new Error("IBKR API 获取失败，请稍后重试。");
+  }
   function first(data, names) { for (const n of names) if (data[key(n)] !== undefined && data[key(n)] !== "") return data[key(n)]; return ""; }
   function firstAmount(data, names) { for (const n of names) { const v = data[key(n)]; if (v !== undefined) { const a = amountOf(v); if (Number.isFinite(a)) return a; } } return NaN; }
   function getBucket(map, symbol) { if (!map.has(symbol)) map.set(symbol, { symbol, stockRealizedPL: 0, stockUnrealizedPL: 0, optionProfit: 0, totalProfit: 0 }); return map.get(symbol); }
